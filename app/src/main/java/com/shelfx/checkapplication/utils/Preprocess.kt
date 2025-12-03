@@ -16,18 +16,20 @@ class Preprocess(
             // Detect largest face
             val faceResult = faceDetector.detectLargestFace(bitmap)
 
+
+
             if (faceResult == null) {
-                Log.w(TAG, "No face detected in image")
+                Log.w("Face result", "No face detected in image")
                 return null
             }
 
-            Log.d(TAG, "Face detected at: ${faceResult.boundingBox}")
+            Log.d("Face result success", "Face detected at: ${faceResult.boundingBox}")
 
             // Align face
             val alignedFace = faceAlign.alignFaceWithLandmarks(faceResult = faceResult, bitmap = bitmap)
 
             if (alignedFace == null) {
-                Log.w(TAG, "Face alignment failed")
+                Log.w("Face alignment", "Face alignment failed")
                 return null
             }
 
@@ -35,7 +37,7 @@ class Preprocess(
             alignedFace
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error in preprocessing: ${e.message}")
+            Log.e("Face result error", "Error in preprocessing: ${e.message}")
             null
         }
     }

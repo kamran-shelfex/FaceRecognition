@@ -68,7 +68,7 @@ class MainActivity : ComponentActivity() {
             applicationContext,
             AppDatabase::class.java,
             "user_images_db"
-        ).build()
+        ).fallbackToDestructiveMigration().build()
 
         // 1️⃣ Initialize face processing FIRST
         initializeFaceProcessing()
@@ -114,9 +114,10 @@ class MainActivity : ComponentActivity() {
             // You can use `this` or `applicationContext` – both are fine here
             embedder = EdgeFaceEmbedder(this)
             preprocess = Preprocess(faceDetector, faceAlign)
+            Log.e("Preprocess",preprocess.toString())
             embeddingPipeline = EmbeddingPipeline(preprocess, embedder)
 
-            Log.d("MainActivity", "Face processing components initialized successfully")
+            Log.e("MainActivity", "Face processing components initialized successfully")
         } catch (e: Exception) {null
             Log.e("MainActivity", "Error initializing face processing: ${e.message}", e)
             embeddingPipeline = null
@@ -184,6 +185,78 @@ fun MainScreen(viewModel: UserImagesViewModel) {
     }
 }
 
+fun processAndSaveImages(
+    context: Context,
+    viewModel: UserImagesViewModel,
+    capturedImages: Map<ImageType, String>,
+    onComplete: (Boolean, String) -> Unit
+) {
+    // Use coroutine for async processing
+    (context as? ComponentActivity)?.lifecycleScope?.launch {
+        try {
+            val frontPath = capturedImages[ImageType.FRONT]
+            val leftPath = capturedImages[ImageType.LEFT]
+            val rightPath = capturedImages[ImageType.RIGHT]
+
+            if (frontPath == null || leftPath == null || rightPath == null) {
+                withContext(Dispatchers.Main) {
+                    onComplete(false, "Missing image paths")
+                }
+                return@launch
+            }
+
+            // Process images in background
+            withContext(Dispatchers.IO) {
+                Log.d("ProcessImages", "Starting face detection and embedding generation...")
+
+                // Load bitmaps
+                val frontBitmap = BitmapFactory.decodeFile(frontPath)
+                val leftBitmap = BitmapFactory.decodeFile(leftPath)
+                val rightBitmap = BitmapFactory.decodeFile(rightPath)
+
+                if (frontBitmap == null || leftBitmap == null || rightBitmap == null) {
+                    withContext(Dispatchers.Main) {
+                        onComplete(false, "Failed to load images")
+                    }
+                    return@withContext
+                }
+
+                Log.d("ProcessImages", "Images loaded successfully")
+                Log.d("ProcessImages", "Front: ${frontBitmap.width}x${frontBitmap.height}")
+                Log.d("ProcessImages", "Left: ${leftBitmap.width}x${leftBitmap.height}")
+                Log.d("ProcessImages", "Right: ${rightBitmap.width}x${rightBitmap.height}")
+
+                // Generate user ID
+                val userId = "User_${System.currentTimeMillis()}"
+//                val userName = "User ${System.currentTimeMillis() % 10000}"
+                val userName = "John"
+
+                Log.d("ProcessImages", "Generated userName: $userName")
+
+                // Save all images with face processing
+                viewModel.saveUserEmbeddings(
+                    context = context,
+                    userName = userName,
+                    frontBitmap = frontBitmap,
+                    leftBitmap = leftBitmap,
+                    rightBitmap = rightBitmap,
+                )
+
+                Log.d("ProcessImages", "All images processed and saved successfully")
+
+                withContext(Dispatchers.Main) {
+                    onComplete(true, "All images processed and saved successfully!")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ProcessImages", "Error processing images: ${e.message}", e)
+            withContext(Dispatchers.Main) {
+                onComplete(false, "Error: ${e.message}")
+            }
+        }
+    }
+}
+
 @Composable
 fun CameraScreen(viewModel: UserImagesViewModel) {
     val context = LocalContext.current
@@ -202,6 +275,39 @@ fun CameraScreen(viewModel: UserImagesViewModel) {
 
     val preview: Preview = remember { Preview.Builder().build() }
 
+
+//    #----------------------------------------------------------------------------------------------
+    LaunchedEffect(capturedImages.size, currentViewToCapture) {
+        if (capturedImages.size == 3 && currentViewToCapture == null && !isProcessing) {
+            isProcessing = true
+
+            Log.e("CameraScreen--", "All images captured")
+
+            processAndSaveImages(
+                context = context,
+                viewModel = viewModel,
+                capturedImages = capturedImages,
+                onComplete = { success, message ->// This lambda will be called when processing is finished
+                    isProcessing = false
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+
+                    if (success) {
+                        // Reset the screen for a new capture session
+                        capturedImages = emptyMap()
+                        currentViewToCapture = ImageType.FRONT
+                    } else {
+                        // Optionally, allow the user to try saving again
+                        // Or reset the state
+                        capturedImages = emptyMap()
+                        currentViewToCapture = ImageType.FRONT
+                    }
+                }
+            )
+
+        }
+    }
+
+//    #----------------------------------------------------------------------------------------------
     val viewLabel = when (currentViewToCapture) {
         ImageType.FRONT -> "Step 1/3: Capture FRONT view"
         ImageType.LEFT -> "Step 2/3: Capture LEFT side"
@@ -362,111 +468,6 @@ fun CameraScreen(viewModel: UserImagesViewModel) {
                 }
             }
         }
+
     }
 }
-
-private fun takePhoto(
-    context: Context,
-    imageCapture: ImageCapture,
-    currentType: ImageType,
-    onSuccess: (String) -> Unit
-) {
-    val photoFile = File(
-        context.getExternalFilesDir(null) ?: context.filesDir,
-        "${System.currentTimeMillis()}_${currentType.name}.jpg"
-    )
-
-    val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
-
-    imageCapture.takePicture(
-        outputOptions,
-        ContextCompat.getMainExecutor(context),
-        object : ImageCapture.OnImageSavedCallback {
-            override fun onError(exc: ImageCaptureException) {
-                Toast.makeText(
-                    context,
-                    "Failed to capture: ${exc.message}",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
-
-            override fun onImageSaved(result: ImageCapture.OutputFileResults) {
-                onSuccess(photoFile.absolutePath)
-            }
-        }
-    )
-}
-
-private fun processAndSaveImages(
-    context: Context,
-    viewModel: UserImagesViewModel,
-    capturedImages: Map<ImageType, String>,
-    onComplete: (Boolean, String) -> Unit
-) {
-    // Use coroutine for async processing
-    (context as? ComponentActivity)?.lifecycleScope?.launch {
-        try {
-            val frontPath = capturedImages[ImageType.FRONT]
-            val leftPath = capturedImages[ImageType.LEFT]
-            val rightPath = capturedImages[ImageType.RIGHT]
-
-            if (frontPath == null || leftPath == null || rightPath == null) {
-                withContext(Dispatchers.Main) {
-                    onComplete(false, "Missing image paths")
-                }
-                return@launch
-            }
-
-            // Process images in background
-            withContext(Dispatchers.IO) {
-                Log.d("ProcessImages", "Starting face detection and embedding generation...")
-
-                // Load bitmaps
-                val frontBitmap = BitmapFactory.decodeFile(frontPath)
-                val leftBitmap = BitmapFactory.decodeFile(leftPath)
-                val rightBitmap = BitmapFactory.decodeFile(rightPath)
-
-                if (frontBitmap == null || leftBitmap == null || rightBitmap == null) {
-                    withContext(Dispatchers.Main) {
-                        onComplete(false, "Failed to load images")
-                    }
-                    return@withContext
-                }
-
-                Log.d("ProcessImages", "Images loaded successfully")
-                Log.d("ProcessImages", "Front: ${frontBitmap.width}x${frontBitmap.height}")
-                Log.d("ProcessImages", "Left: ${leftBitmap.width}x${leftBitmap.height}")
-                Log.d("ProcessImages", "Right: ${rightBitmap.width}x${rightBitmap.height}")
-
-                // Generate user ID
-                val userId = "User_${System.currentTimeMillis()}"
-//                val userName = "User ${System.currentTimeMillis() % 10000}"
-                val userName = "John"
-
-                Log.d("ProcessImages", "Generated userName: $userName")
-
-                // Save all images with face processing
-                viewModel.saveUserEmbeddings(
-                    context = context,
-                    userName = userName,
-                    frontBitmap = frontBitmap,
-                    leftBitmap = leftBitmap,
-                    rightBitmap = rightBitmap,
-                )
-
-                Log.d("ProcessImages", "All images processed and saved successfully")
-
-                withContext(Dispatchers.Main) {
-                    onComplete(true, "All images processed and saved successfully!")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("ProcessImages", "Error processing images: ${e.message}", e)
-            withContext(Dispatchers.Main) {
-                onComplete(false, "Error: ${e.message}")
-            }
-        }
-    }
-}
-
-

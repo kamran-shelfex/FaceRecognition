@@ -5,7 +5,7 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import com.shelfx.checkapplication.data.entity.UserImages
 
-@Database(entities = [UserImages::class], version = 1, exportSchema = false)
+@Database(entities = [UserImages::class], version = 2, exportSchema = false)
 
 @TypeConverters(EmbeddingConverter::class)
 

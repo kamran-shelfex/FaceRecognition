@@ -24,8 +24,6 @@ class EdgeFaceEmbedder(context: Context) {
                 // setUseNNAPI(true)
             }
             interpreter = Interpreter(model, options)
-            Log.d(TAG, "EdgeFace model loaded successfully")
-
             // Print model input/output info
             printModelInfo()
         } catch (e: Exception) {
@@ -45,6 +43,7 @@ class EdgeFaceEmbedder(context: Context) {
 
         // Prepare output array
         val output = Array(1) { FloatArray(embeddingSize) }
+        Log.d("Output", output.toString())
 
         // Run inference
         interpreter?.run(input, output)
