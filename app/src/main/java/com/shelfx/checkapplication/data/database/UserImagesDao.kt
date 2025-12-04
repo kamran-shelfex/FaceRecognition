@@ -16,5 +16,8 @@ interface UserImagesDao {
     suspend fun updateUserImages(userImages: UserImages)
     @Query("SELECT * FROM user_images WHERE userName = :name")
     suspend fun getUserImages(name: String): UserImages?
+
+    @Query("SELECT * FROM user_images LIMIT 1")
+    fun getAnyUser(): UserImages?
 }
 

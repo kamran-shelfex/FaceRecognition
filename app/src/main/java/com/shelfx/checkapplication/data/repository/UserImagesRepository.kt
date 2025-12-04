@@ -20,6 +20,10 @@ class UserImagesRepository(
         return dao.getUserImages(userName)
     }
 
+    suspend fun getAnyUser(): UserImages? {
+        return dao.getAnyUser()
+    }
+
     suspend fun saveUserWithEmbeddings(
         context: Context,
         name: String,
