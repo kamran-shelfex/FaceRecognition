@@ -19,5 +19,8 @@ interface UserImagesDao {
 
     @Query("SELECT * FROM user_images LIMIT 1")
     fun getAnyUser(): UserImages?
+
+    @Query("DELETE FROM user_images")
+    fun deleteAll()
 }
 

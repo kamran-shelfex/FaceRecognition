@@ -35,7 +35,6 @@ class FaceDetector {
     suspend fun detectFaces(bitmap: Bitmap): List<FaceDetectionResult> {
         val image = InputImage.fromBitmap(bitmap, 0)
         val faces = detector.process(image).await()
-
         return faces.map { face ->
             FaceDetectionResult(
                 boundingBox = face.boundingBox,

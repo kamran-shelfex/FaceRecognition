@@ -6,15 +6,15 @@ import android.util.Log
 import com.shelfx.checkapplication.data.database.UserImagesDao
 import com.shelfx.checkapplication.data.entity.UserImages
 import com.shelfx.checkapplication.utils.EmbeddingPipeline
+import com.shelfx.checkapplication.utils.FaceVerifier
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class UserImagesRepository(
     private val dao: UserImagesDao,
-    private val embeddingPipeline: EmbeddingPipeline    // ✅ inject pipeline
+    private val embeddingPipeline: EmbeddingPipeline,
+    private val faceVerifier: FaceVerifier
 ) {
-
-//    suspend fun insertUserImages(userImages: UserImages) {
-//        dao.insertUserImages(userImages)
-//    }
 
     suspend fun getUserImages(userName: String): UserImages? {
         return dao.getUserImages(userName)
@@ -24,6 +24,48 @@ class UserImagesRepository(
         return dao.getAnyUser()
     }
 
+    // FIX: Made this function 'suspend' and wrapped database call in withContext(Dispatchers.IO)
+    suspend fun deleteUsers() {
+        withContext(Dispatchers.IO) {
+            try {
+                dao.deleteAll()
+                Log.d("Repository", "All users deleted successfully")
+            } catch (e: Exception) {
+                Log.e("Repository", "Error deleting users: $e")
+            }
+        }
+    }
+
+    suspend fun verifyUser(capturedBitmap: Bitmap, userName: String): Boolean {
+        Log.d("Repository", "Attempting to verify user: $userName")
+
+        val userWithEmbeddings = dao.getUserImages(userName)
+        if (userWithEmbeddings == null) {
+            Log.e("Repository", "Verification failed: User '$userName' not found in database.")
+            return false
+        }
+
+        val storedEmbeddings = listOf(
+            userWithEmbeddings.frontEmbedding,
+            userWithEmbeddings.leftEmbedding,
+            userWithEmbeddings.rightEmbedding
+        )
+
+        Log.d("Repository", "images list ${storedEmbeddings}")
+
+        val (isMatch, similarityScore) = faceVerifier.verifyFace(
+            capturedBitmap = capturedBitmap,
+            storedEmbeddings = storedEmbeddings,
+        )
+
+        Log.i(
+            "Repository",
+            "Verification complete for '$userName'. Match: $isMatch, Similarity Score: $similarityScore"
+        )
+
+        return isMatch
+    }
+
     suspend fun saveUserWithEmbeddings(
         context: Context,
         name: String,
@@ -31,90 +73,67 @@ class UserImagesRepository(
         leftBitmap: Bitmap,
         rightBitmap: Bitmap
     ) {
-        Log.d("ViewModel", "Starting to save embeddings for user: $name")
-        // ✅ use the pipeline’s generateEmbedding method
-//        val frontEmb = embeddingPipeline.generateEmbedding(context, frontBitmap)
-//        val leftEmb  = embeddingPipeline.generateEmbedding(context, leftBitmap)
-//        val rightEmb = embeddingPipeline.generateEmbedding(context, rightBitmap)
+        // Run this heavy operation on the IO thread
+        withContext(Dispatchers.IO) {
+            Log.d("ViewModel", "Starting to save embeddings for user: $name")
 
-        // Generate embeddings
-        Log.d("Repository", "Generating FRONT embedding...")
-        val frontEmb = embeddingPipeline.generateEmbedding(context, frontBitmap)
-        Log.d("Repository", "Front embedding: ${if (frontEmb != null) "SUCCESS (size: ${frontEmb.size})" else "FAILED (null)"}")
+            Log.d("Repository", "Generating FRONT embedding...")
+            val frontEmb = embeddingPipeline.generateEmbedding(frontBitmap)
+            Log.d("Repository", "Front embedding: ${if (frontEmb != null) "SUCCESS (size: ${frontEmb.size})" else "FAILED (null)"}")
 
-        Log.d("Repository", "Generating LEFT embedding...")
-        val leftEmb = embeddingPipeline.generateEmbedding(context, leftBitmap)
-        Log.d("Repository", "Left embedding: ${if (leftEmb != null) "SUCCESS (size: ${leftEmb.size})" else "FAILED (null)"}")
+            Log.d("Repository", "Generating LEFT embedding...")
+            val leftEmb = embeddingPipeline.generateEmbedding(leftBitmap)
+            Log.d("Repository", "Left embedding: ${if (leftEmb != null) "SUCCESS (size: ${leftEmb.size})" else "FAILED (null)"}")
 
-        Log.d("Repository", "Generating RIGHT embedding...")
-        val rightEmb = embeddingPipeline.generateEmbedding(context, rightBitmap)
-        Log.d("Repository", "Right embedding: ${if (rightEmb != null) "SUCCESS (size: ${rightEmb.size})" else "FAILED (null)"}")
+            Log.d("Repository", "Generating RIGHT embedding...")
+            val rightEmb = embeddingPipeline.generateEmbedding(rightBitmap)
+            Log.d("Repository", "Right embedding: ${if (rightEmb != null) "SUCCESS (size: ${rightEmb.size})" else "FAILED (null)"}")
 
+            if (frontEmb != null && leftEmb != null && rightEmb != null) {
+                Log.d("Repository", "✅ All embeddings generated successfully!")
 
-        if (frontEmb != null && leftEmb != null && rightEmb != null) {
-            Log.d("Repository", "✅ All embeddings generated successfully!")
+                try {
+                    val existingUser = dao.getUserImages(name)
+                    Log.d("Repository", "Existing user: ${existingUser?.rightEmbedding.toString()}")
 
-            val user = UserImages(
-                userName = name,
-                frontEmbedding = frontEmb,
-                leftEmbedding = leftEmb,
-                rightEmbedding = rightEmb
-            )
+                    if (existingUser == null) {
+                        Log.d("Repository", "User '$name' not found. Inserting new record...")
+                        val newUser = UserImages(
+                            userName = name,
+                            frontEmbedding = frontEmb,
+                            leftEmbedding = leftEmb,
+                            rightEmbedding = rightEmb
+                        )
+                        val insertedId = dao.insertUserImages(newUser)
+                        Log.d("Repository", "DATABASE INSERT SUCCESS! New user Row ID: $insertedId")
 
-            Log.d("Repository", "Inserting into database...")
-            try {
-                // First, check if the user already exists
-                val existingUser = dao.getUserImages(name)
-                Log.d("Repository", "Existing user: ${existingUser?.rightEmbedding.toString()}")
+                    } else {
+                        Log.d("Repository", "User '$name' found. Updating existing record...")
+                        val updatedUser = existingUser.copy(
+                            frontEmbedding = frontEmb,
+                            leftEmbedding = leftEmb,
+                            rightEmbedding = rightEmb
+                        )
+                        dao.updateUserImages(updatedUser)
+                        Log.d("Repository", "DATABASE UPDATE SUCCESS! User '$name' embeddings have been updated.")
+                    }
 
-
-                if (existingUser == null) {
-                    // --- USER DOES NOT EXIST: INSERT NEW ---
-                    Log.d("Repository", "User '$name' not found. Inserting new record...")
-                    val newUser = UserImages(
-                        userName = name,
-                        frontEmbedding = frontEmb,
-                        leftEmbedding = leftEmb,
-                        rightEmbedding = rightEmb
-                    )
-                    val insertedId = dao.insertUserImages(newUser)
-                    Log.d("Repository", "DATABASE INSERT SUCCESS! New user Row ID: $insertedId")
-
-                } else {
-                    // --- USER EXISTS: UPDATE RECORD ---
-                    Log.d("Repository", "User '$name' found. Updating existing record...")
-                    val updatedUser = existingUser.copy(
-                        frontEmbedding = frontEmb,
-                        leftEmbedding = leftEmb,
-                        rightEmbedding = rightEmb
-                    )
-                    dao.updateUserImages(updatedUser) // Assuming you have an @Update method in your DAO
-                    Log.d("Repository", "DATABASE UPDATE SUCCESS! User '$name' embeddings have been updated.")
+                    val retrievedUser = dao.getUserImages(name)
+                    if (retrievedUser != null) {
+                        Log.d("Repository", "VERIFICATION SUCCESS! Retrieved user: ${retrievedUser.userName}")
+                    } else {
+                        Log.e("Repository", "VERIFICATION FAILED! Could not retrieve user after save operation.")
+                    }
+                } catch (e: Exception) {
+                    Log.e("Repository", "DATABASE SAVE FAILED: ${e.message}", e)
+                    throw e
                 }
-
-                // --- VERIFICATION STEP (applies to both insert and update) ---
-                val retrievedUser = dao.getUserImages(name)
-                if (retrievedUser != null) {
-                    Log.d("Repository", "VERIFICATION SUCCESS!")
-                    Log.d("Repository", "Retrieved user: ${retrievedUser.userName}")
-                    Log.d("Repository", "Front embedding size: ${retrievedUser.frontEmbedding.size}")
-                    Log.d("Repository", "Left embedding size: ${retrievedUser.leftEmbedding.size}")
-                    Log.d("Repository", "Right embedding size: ${retrievedUser.rightEmbedding.size}")
-                } else {
-                    Log.e("Repository", "VERIFICATION FAILED! Could not retrieve user after save operation.")
-                }
-            } catch (e: Exception) {
-                Log.e("Repository", "DATABASE SAVE FAILED: ${e.message}", e)
-                throw e
+            } else {
+                Log.e("Repository", "EMBEDDING GENERATION FAILED!")
+                throw Exception("Failed to generate embeddings for one or more images")
             }
 
-
-        } else {
-            Log.e("Repository", "EMBEDDING GENERATION FAILED!")
-            Log.e("Repository", "Front: ${frontEmb != null}, Left: ${leftEmb != null}, Right: ${rightEmb != null}")
-            throw Exception("Failed to generate embeddings for one or more images")
+            Log.d("Repository", "========== EMBEDDING PROCESS COMPLETE ==========")
         }
-
-        Log.d("Repository", "========== EMBEDDING PROCESS COMPLETE ==========")
     }
 }

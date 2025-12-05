@@ -6,24 +6,23 @@ import android.util.Log
 
 class Preprocess(
     private val faceDetector: FaceDetector,
-    private val faceAlign: FaceAlign
+    private val faceAlign: FaceAlign,
+
 ) {
-    /**
-     * Complete preprocessing pipeline: detect → align → return
-     */
+    companion object {
+        private const val TAG = "Preprocess"
+    }
     suspend fun preprocessForRecognition(bitmap: Bitmap): Bitmap? {
         return try {
             // Detect largest face
             val faceResult = faceDetector.detectLargestFace(bitmap)
 
-
-
             if (faceResult == null) {
-                Log.w("Face result", "No face detected in image")
+                Log.w(TAG, "No face detected in image")
                 return null
             }
 
-            Log.d("Face result success", "Face detected at: ${faceResult.boundingBox}")
+            Log.d(TAG, "Face detected at: ${faceResult.boundingBox}")
 
             // Align face
             val alignedFace = faceAlign.alignFaceWithLandmarks(faceResult = faceResult, bitmap = bitmap)
@@ -37,7 +36,7 @@ class Preprocess(
             alignedFace
 
         } catch (e: Exception) {
-            Log.e("Face result error", "Error in preprocessing: ${e.message}")
+            Log.e(TAG, "Error in preprocessing: ${e.message}")
             null
         }
     }
@@ -71,9 +70,7 @@ class Preprocess(
         }
     }
 
-    companion object {
-        private const val TAG = "Preprocess"
-    }
+
 }
 
 data class PreprocessResult(

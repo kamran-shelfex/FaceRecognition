@@ -24,11 +24,26 @@ class UserImagesViewModel(
     // -------------------------------------------------------
     // Load user from database
     // -------------------------------------------------------
-    fun loadUserImages(userName: String) {
-        viewModelScope.launch {
-            _userImages.value = repository.getUserImages(userName)
-        }
+    suspend fun loadUserImages(userName: String): UserImages? {
+        val user = repository.getUserImages(userName)
+        _userImages.value = user
+        return user
     }
+
+
+    fun DeletemyUsers() {
+        try {
+            viewModelScope.launch {
+                repository.deleteUsers()
+            }
+        } catch (e: Exception) {
+            Log.d("Deleted", "${e}")
+
+        }
+
+    }
+
+
 
     /**
      * Checks if there are any users in the database.
@@ -40,27 +55,27 @@ class UserImagesViewModel(
         }.await()
     }
 
-    /**
-     * Verifies a user's face against their stored embeddings during login.
-     * NOTE: You must implement the actual similarity matching logic in your repository.
-     *
-     * @param liveBitmap The new image captured from the camera for verification.
-     * @param userName The name of the user trying to log in.
-     * @return True if the face is a match, false otherwise.
-     */
-    suspend fun verifyUser(liveBitmap: android.graphics.Bitmap, userName: String): Boolean {
-        return viewModelScope.async(Dispatchers.IO) {
-            // --- THIS IS A PLACEHOLDER FOR YOUR CORE VERIFICATION LOGIC ---
-            // 1. Get the stored embeddings for the provided 'userName'.
-            // 2. Generate new embeddings for the 'liveBitmap'.
-            // 3. Compare the new embeddings with the stored ones.
-            // 4. Return true if similarity is above your threshold, otherwise return false.
 
-            Log.d("ViewModel", "Simulating verification for '$userName'. Implement real logic.")
-            // Example of what real logic might look like:
-            // val isMatch = repository.verifyFace(liveBitmap, userName)
-            // return@async isMatch
-            true // Returning true for now to allow UI flow testing.
+//    suspend fun verifyUser(liveBitmap: android.graphics.Bitmap, userName: String): Boolean {
+//        return viewModelScope.async(Dispatchers.IO) {
+//            // --- THIS IS A PLACEHOLDER FOR YOUR CORE VERIFICATION LOGIC ---
+//            // 1. Get the stored embeddings for the provided 'userName'.
+//            // 2. Generate new embeddings for the 'liveBitmap'.
+//            // 3. Compare the new embeddings with the stored ones.
+//            // 4. Return true if similarity is above your threshold, otherwise return false.
+//
+//            Log.d("ViewModel", "Simulating verification for '$userName'. Implement real logic.")
+//            // Example of what real logic might look like:
+//            // val isMatch = repository.verifyFace(liveBitmap, userName)
+//            // return@async isMatch
+//            true // Returning true for now to allow UI flow testing.
+//        }.await()
+//    }
+
+    suspend fun verifyUser(liveBitmap: android.graphics.Bitmap, userName: String): Boolean {
+        // This now calls the real implementation in the repository.
+        return viewModelScope.async(Dispatchers.IO) {
+            repository.verifyUser(liveBitmap, userName)
         }.await()
     }
 

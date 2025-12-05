@@ -90,10 +90,10 @@ dependencies {
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
 //    ksp(libs.room.compiler)
-    
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
         // TensorFlow Lite for running EdgeFace model
 //    implementation("org.tensorflow:tensorflow-lite:2.17.0")
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
+    implementation("org.tensorflow:tensorflow-lite-support:0.5.0")
 //  implementation("org.tensorflow:tensorflow-lite-gpu:2.17.0") // Optional: GPU acceleration
 
         // ML Kit for face detection
@@ -103,7 +103,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
         // For image processing
-    implementation("androidx.camera:camera-core:1.3.1")
+    implementation("androidx.camera:camera-core:1.5.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
 
 }
