@@ -194,6 +194,7 @@ fun AppNavigator(viewModelFactory: UserImagesViewModelFactory) {
         }
 
         is Screen.LoginNameEntry -> LoginNameEntryScreen(
+            viewModel = viewModel,
             onNameEntered = { userName ->
                 currentScreen = Screen.PerformLogin(userName)
             },
@@ -236,6 +237,7 @@ fun WelcomeScreen(
     onNavigateToRegister: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var isChecking by remember { mutableStateOf(true) }
     LaunchedEffect(key1 = true) {
         scope.launch {
@@ -249,7 +251,6 @@ fun WelcomeScreen(
 //                Log.d("Deleted","${e}")
 //
 //            }
-
             // Check if users exist in database
             val hasUsers = viewModel.hasAnyUsers()
 
@@ -302,6 +303,11 @@ fun WelcomeScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Maintenance: delete all users (debug helper)
+
         }
     }
 }
@@ -392,11 +398,14 @@ fun RegistrationNameEntryScreen(
 
 @Composable
 fun LoginNameEntryScreen(
+    viewModel: UserImagesViewModel,
     onNameEntered: (String) -> Unit,
     onBackToWelcome: () -> Unit
 ) {
     var userName by remember { mutableStateOf("") }
     var nameError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier
@@ -459,6 +468,52 @@ fun LoginNameEntryScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
+        // Delete a specific user by name
+        OutlinedButton(
+            onClick = {
+//                if (userName.isBlank()) {
+//                    Toast.makeText(context, "Enter username to delete", Toast.LENGTH_SHORT).show()
+//                    return@OutlinedButton
+//                }
+                scope.launch {
+                    try {
+                        viewModel.DeletemyUsers()
+                        Toast.makeText(context, "Deleted user '$userName'", Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Delete failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+        ) {
+            Text("Delete This User")
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Delete all users (maintenance)
+        OutlinedButton(
+            onClick = {
+                scope.launch {
+                    try {
+                        viewModel.DeletemyUsers()
+                        Toast.makeText(context, "All users deleted", Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Delete all failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+        ) {
+            Text("Delete All Users")
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
         OutlinedButton(
             onClick = onBackToWelcome,
             modifier = Modifier
@@ -467,6 +522,8 @@ fun LoginNameEntryScreen(
         ) {
             Text("Back to Welcome")
         }
+
+       
     }
 }
 
@@ -1392,6 +1449,7 @@ fun processAndSaveImages(
             val leftPath = capturedImages[ImageType.LEFT]
             val rightPath = capturedImages[ImageType.RIGHT]
 
+            Log.d("CameraCaptureScreen", "Captured images: $capturedImages")
             if (frontPath == null || leftPath == null || rightPath == null) {
                 withContext(Dispatchers.Main) {
                     onComplete(false, "Missing image paths")
