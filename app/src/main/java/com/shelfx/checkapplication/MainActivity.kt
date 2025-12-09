@@ -253,9 +253,8 @@ fun WelcomeScreen(
             // Check if users exist in database
             val hasUsers = viewModel.hasAnyUsers()
 
-            val hasUser = viewModel.loadUserImages("ahmad")
 
-            Log.d("Has User","users ${hasUser}")
+            Log.d("Has User","users ${hasUsers}")
 
             // Small delay for better UX (optional - shows the welcome screen briefly)
             delay(1000)
@@ -471,6 +470,7 @@ fun LoginNameEntryScreen(
     }
 }
 
+
 @Composable
 fun LoginVerificationScreen(
     viewModel: UserImagesViewModel,
@@ -478,14 +478,58 @@ fun LoginVerificationScreen(
     onLoginSuccess: (String) -> Unit,
     onBackToNameEntry: () -> Unit
 ) {
-    var statusText by remember { mutableStateOf("Position your face in the frame and tap verify") }
-    var isLoading by remember { mutableStateOf(false) }
+    var statusText by remember { mutableStateOf("Checking user...") }
+    var isLoading by remember { mutableStateOf(true) }
+    var showError by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf("") }
+    var userExists by remember { mutableStateOf(false) }
+    var isVerifying by remember { mutableStateOf(false) }
+
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    val imageCapture = remember { ImageCapture.Builder().build() }
+    val imageCapture = remember {
+        ImageCapture.Builder()
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .build()
+    }
     val preview = remember { Preview.Builder().build() }
+
+    // Step 1: Check if user exists in database
+    LaunchedEffect(userName.trim()) {
+        scope.launch {
+            try {
+                val TAG = "LoginVerification"
+                statusText = "Checking if user '$userName' exists..."
+                val storedImages = viewModel.loadUserImages(userName)
+                Log.d(TAG,"${storedImages}")
+
+                if (storedImages == null) {
+                    // User not found
+                    userExists = false
+                    isLoading = false
+                    showError = true
+                    errorMessage = "User not found"
+                    statusText = "User '$userName' not found. Please register first."
+                    Log.w("LoginVerification", "User '$userName' does not exist in database")
+                } else {
+                    // User found
+                    userExists = true
+                    isLoading = false
+                    statusText = "User found! Position your face in the frame and tap verify"
+                    Log.d("LoginVerification", "User '$userName' found in database")
+                }
+            } catch (e: Exception) {
+                Log.e("LoginVerification", "Error checking user existence: ${e.message}", e)
+                userExists = false
+                isLoading = false
+                showError = true
+                errorMessage = "Database error"
+                statusText = "Error checking user: ${e.message}"
+            }
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Camera Preview
@@ -497,18 +541,27 @@ fun LoginVerificationScreen(
                 PreviewView(ctx).also { preview.setSurfaceProvider(it.surfaceProvider) }
             },
             update = {
-                val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-                cameraProviderFuture.addListener({
-                    val cameraProvider = cameraProviderFuture.get()
-                    val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
-                    cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
-                        lifecycleOwner,
-                        cameraSelector,
-                        preview,
-                        imageCapture
-                    )
-                }, ContextCompat.getMainExecutor(context))
+                // Only initialize camera if user exists
+                if (userExists) {
+                    val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+                    cameraProviderFuture.addListener({
+                        try {
+                            val cameraProvider = cameraProviderFuture.get()
+                            val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+                            cameraProvider.unbindAll()
+                            cameraProvider.bindToLifecycle(
+                                lifecycleOwner,
+                                cameraSelector,
+                                preview,
+                                imageCapture
+                            )
+                        } catch (e: Exception) {
+                            Log.e("LoginVerification", "Camera binding failed: ${e.message}", e)
+                            statusText = "Camera initialization failed"
+                            showError = true
+                        }
+                    }, ContextCompat.getMainExecutor(context))
+                }
             }
         )
 
@@ -519,7 +572,10 @@ fun LoginVerificationScreen(
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Face Verification", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                "Face Verification",
+                style = MaterialTheme.typography.headlineSmall
+            )
 
             Spacer(Modifier.height(8.dp))
 
@@ -531,75 +587,167 @@ fun LoginVerificationScreen(
 
             Spacer(Modifier.height(16.dp))
 
-            Text(
-                statusText,
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.bodyMedium,
+            // Status Card
+            Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp)
-            )
+                    .padding(vertical = 8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = when {
+                        showError -> MaterialTheme.colorScheme.errorContainer
+                        userExists && !isVerifying -> MaterialTheme.colorScheme.primaryContainer
+                        else -> MaterialTheme.colorScheme.secondaryContainer
+                    }
+                )
+            ) {
+                Text(
+                    statusText,
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    color = when {
+                        showError -> MaterialTheme.colorScheme.onErrorContainer
+                        userExists && !isVerifying -> MaterialTheme.colorScheme.onPrimaryContainer
+                        else -> MaterialTheme.colorScheme.onSecondaryContainer
+                    }
+                )
+            }
 
             Spacer(Modifier.height(16.dp))
 
-            // Verify Button
-            Button(
-                onClick = {
-                    isLoading = true
-                    statusText = "Verifying your face..."
-                    imageCapture.takePicture(
-                        ContextCompat.getMainExecutor(context),
-                        object : ImageCapture.OnImageCapturedCallback() {
-                            override fun onCaptureSuccess(image: ImageProxy) {
-                                scope.launch {
-                                    val bitmap = image.toBitmap()
-                                    image.close()
+            // Step 2: Verify Face (only if user exists)
+            if (userExists) {
+                Button(
+                    onClick = {
+                        isVerifying = true
+                        showError = false
+                        statusText = "Capturing your face..."
 
-                                    if (bitmap == null) {
-                                        isLoading = false
-                                        statusText = "Failed to read image from camera."
-                                        return@launch
-                                    }
+                        imageCapture.takePicture(
+                            ContextCompat.getMainExecutor(context),
+                            object : ImageCapture.OnImageCapturedCallback() {
+                                override fun onCaptureSuccess(image: ImageProxy) {
+                                    scope.launch {
+                                        try {
+                                            statusText = "Processing face data..."
 
-                                    val isVerified = viewModel.verifyUser(bitmap, userName)
-                                    isLoading = false
+                                            val bitmap = image.toBitmap()
+                                            image.close()
 
-                                    if (isVerified) {
-                                        Toast.makeText(
-                                            context,
-                                            "Welcome back, $userName!",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                        onLoginSuccess(userName)
-                                    } else {
-                                        statusText = "Verification failed. Please try again."
+                                            if (bitmap == null) {
+                                                isVerifying = false
+                                                showError = true
+                                                statusText = "Failed to process camera image."
+                                                return@launch
+                                            }
+
+                                            Log.d("LoginVerification", "Bitmap created: ${bitmap.width}x${bitmap.height}")
+
+                                            // Step 2: Match embeddings
+                                            statusText = "Matching face embeddings with stored data..."
+                                            val isVerified = withContext(Dispatchers.IO) {
+                                                viewModel.verifyUser(bitmap, userName)
+                                            }
+
+                                            isVerifying = false
+
+                                            if (isVerified) {
+                                                statusText = "✓ Face verification successful!"
+                                                Toast.makeText(
+                                                    context,
+                                                    "Welcome back, $userName!",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                                delay(500)
+                                                onLoginSuccess(userName)
+                                            } else {
+                                                showError = true
+                                                statusText = "Face verification failed. Please ensure:\n" +
+                                                        "• Good lighting\n" +
+                                                        "• Face clearly visible\n" +
+                                                        "• Similar angle to registration"
+                                                Log.w("LoginVerification", "Embedding match failed for user: $userName")
+                                            }
+                                        } catch (e: Exception) {
+                                            Log.e("LoginVerification", "Verification error: ${e.message}", e)
+                                            isVerifying = false
+                                            showError = true
+                                            statusText = "Error during verification: ${e.message}"
+                                        }
                                     }
                                 }
-                            }
 
-                            override fun onError(exc: ImageCaptureException) {
-                                isLoading = false
-                                statusText = "Capture failed: ${exc.message}"
+                                override fun onError(exc: ImageCaptureException) {
+                                    Log.e("LoginVerification", "Capture failed: ${exc.message}", exc)
+                                    isVerifying = false
+                                    showError = true
+                                    statusText = "Camera capture failed. Please try again."
+                                }
                             }
+                        )
+                    },
+                    enabled = !isVerifying && !isLoading,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                ) {
+                    if (isVerifying) {
+                        Row(
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Verifying...")
                         }
-                    )
-                },
-                enabled = !isLoading,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
-                } else {
-                    Text("Verify My Face")
+                    } else {
+                        Text("Verify My Face")
+                    }
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Retry button (shown when verification error occurs)
+                if (showError && errorMessage != "User not found") {
+                    Button(
+                        onClick = {
+                            showError = false
+                            statusText = "Position your face in the frame and tap verify"
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondary
+                        )
+                    ) {
+                        Text("Try Again")
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            } else if (!isLoading) {
+                // Show message if user not found
+                Text(
+                    "Please register this username first",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(vertical = 16.dp)
+                )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            // Loading indicator during initial check
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .padding(vertical = 16.dp)
+                )
+            }
 
             // Back Button
             OutlinedButton(
@@ -613,6 +761,256 @@ fun LoginVerificationScreen(
         }
     }
 }
+
+//@Composable
+//fun LoginVerificationScreen(
+//    viewModel: UserImagesViewModel,
+//    userName: String,
+//    onLoginSuccess: (String) -> Unit,
+//    onBackToNameEntry: () -> Unit
+//) {
+//    var statusText by remember { mutableStateOf("Position your face in the frame and tap verify") }
+//    var isLoading by remember { mutableStateOf(false) }
+//    var showError by remember { mutableStateOf(false) }
+//    var errorMessage by remember { mutableStateOf("") }
+//
+//    val scope = rememberCoroutineScope()
+//    val context = LocalContext.current
+//    val lifecycleOwner = LocalLifecycleOwner.current
+//
+//    val imageCapture = remember {
+//        ImageCapture.Builder()
+//            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+//            .build()
+//    }
+//    val preview = remember { Preview.Builder().build() }
+//
+//    // Check if user exists in database
+//    LaunchedEffect(userName) {
+//        scope.launch {
+//            val userExists = viewModel.loadUserImages(userName)
+//            if (userExists.length == 0) {
+//                statusText = "User '$userName' not found. Please register first."
+//                showError = true
+//                errorMessage = "User not found in database"
+//            }
+//        }
+//    }
+//
+//    Column(modifier = Modifier.fillMaxSize()) {
+//        // Camera Preview
+//        AndroidView(
+//            modifier = Modifier
+//                .weight(1f)
+//                .fillMaxWidth(),
+//            factory = { ctx ->
+//                PreviewView(ctx).also { preview.setSurfaceProvider(it.surfaceProvider) }
+//            },
+//            update = {
+//                val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+//                cameraProviderFuture.addListener({
+//                    try {
+//                        val cameraProvider = cameraProviderFuture.get()
+//                        val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+//                        cameraProvider.unbindAll()
+//                        cameraProvider.bindToLifecycle(
+//                            lifecycleOwner,
+//                            cameraSelector,
+//                            preview,
+//                            imageCapture
+//                        )
+//                    } catch (e: Exception) {
+//                        Log.e("LoginVerification", "Camera binding failed: ${e.message}", e)
+//                        statusText = "Camera initialization failed"
+//                    }
+//                }, ContextCompat.getMainExecutor(context))
+//            }
+//        )
+//
+//        // Login Controls
+//        Column(
+//            modifier = Modifier
+//                .fillMaxWidth()
+//                .padding(24.dp),
+//            horizontalAlignment = Alignment.CenterHorizontally
+//        ) {
+//            Text(
+//                "Face Verification",
+//                style = MaterialTheme.typography.headlineSmall
+//            )
+//
+//            Spacer(Modifier.height(8.dp))
+//
+//            Text(
+//                text = "User: $userName",
+//                style = MaterialTheme.typography.titleMedium,
+//                color = MaterialTheme.colorScheme.primary
+//            )
+//
+//            Spacer(Modifier.height(16.dp))
+//
+//            // Status Card
+//            Card(
+//                modifier = Modifier
+//                    .fillMaxWidth()
+//                    .padding(vertical = 8.dp),
+//                colors = CardDefaults.cardColors(
+//                    containerColor = if (showError)
+//                        MaterialTheme.colorScheme.errorContainer
+//                    else
+//                        MaterialTheme.colorScheme.secondaryContainer
+//                )
+//            ) {
+//                Text(
+//                    statusText,
+//                    textAlign = TextAlign.Center,
+//                    style = MaterialTheme.typography.bodyMedium,
+//                    modifier = Modifier
+//                        .fillMaxWidth()
+//                        .padding(16.dp),
+//                    color = if (showError)
+//                        MaterialTheme.colorScheme.onErrorContainer
+//                    else
+//                        MaterialTheme.colorScheme.onSecondaryContainer
+//                )
+//            }
+//
+//            Spacer(Modifier.height(16.dp))
+//
+//            // Verify Button
+//            Button(
+//                onClick = {
+//                    if (showError && errorMessage == "User not found in database") {
+//                        Toast.makeText(
+//                            context,
+//                            "Please register user '$userName' first",
+//                            Toast.LENGTH_LONG
+//                        ).show()
+//                        return@Button
+//                    }
+//
+//                    isLoading = true
+//                    showError = false
+//                    statusText = "Capturing your face..."
+//
+//                    imageCapture.takePicture(
+//                        ContextCompat.getMainExecutor(context),
+//                        object : ImageCapture.OnImageCapturedCallback() {
+//                            override fun onCaptureSuccess(image: ImageProxy) {
+//                                scope.launch {
+//                                    try {
+//                                        statusText = "Processing face data..."
+//
+//                                        val bitmap = image.toBitmap()
+//                                        image.close()
+//
+//                                        if (bitmap == null) {
+//                                            isLoading = false
+//                                            showError = true
+//                                            statusText = "Failed to process camera image."
+//                                            return@launch
+//                                        }
+//
+//                                        Log.d("LoginVerification", "Bitmap created: ${bitmap.width}x${bitmap.height}")
+//
+//                                        // Verify user with captured bitmap
+//                                        statusText = "Verifying face match..."
+//                                        val isVerified = withContext(Dispatchers.IO) {
+//                                            viewModel.verifyUser(bitmap, userName)
+//                                        }
+//
+//                                        isLoading = false
+//
+//                                        if (isVerified) {
+//                                            statusText = "✓ Verification successful!"
+//                                            Toast.makeText(
+//                                                context,
+//                                                "Welcome back, $userName!",
+//                                                Toast.LENGTH_SHORT
+//                                            ).show()
+//                                            delay(500) // Brief delay to show success message
+//                                            onLoginSuccess(userName)
+//                                        } else {
+//                                            showError = true
+//                                            statusText = "Face verification failed. Please ensure:\n" +
+//                                                    "• Good lighting\n" +
+//                                                    "• Face clearly visible\n" +
+//                                                    "• Similar angle to registration"
+//                                            Log.w("LoginVerification", "Verification failed for user: $userName")
+//                                        }
+//                                    } catch (e: Exception) {
+//                                        Log.e("LoginVerification", "Verification error: ${e.message}", e)
+//                                        isLoading = false
+//                                        showError = true
+//                                        statusText = "Error during verification: ${e.message}"
+//                                    }
+//                                }
+//                            }
+//
+//                            override fun onError(exc: ImageCaptureException) {
+//                                Log.e("LoginVerification", "Capture failed: ${exc.message}", exc)
+//                                isLoading = false
+//                                showError = true
+//                                statusText = "Camera capture failed. Please try again."
+//                            }
+//                        }
+//                    )
+//                },
+//                enabled = !isLoading && !showError,
+//                modifier = Modifier
+//                    .fillMaxWidth()
+//                    .height(56.dp)
+//            ) {
+//                if (isLoading) {
+//                    Row(
+//                        horizontalArrangement = Arrangement.Center,
+//                        verticalAlignment = Alignment.CenterVertically
+//                    ) {
+//                        CircularProgressIndicator(
+//                            modifier = Modifier.size(24.dp),
+//                            color = MaterialTheme.colorScheme.onPrimary
+//                        )
+//                        Spacer(Modifier.width(8.dp))
+//                        Text("Verifying...")
+//                    }
+//                } else {
+//                    Text("Verify My Face")
+//                }
+//            }
+//
+//            Spacer(modifier = Modifier.height(12.dp))
+//
+//            // Retry button (shown when error occurs)
+//            if (showError && errorMessage != "User not found in database") {
+//                Button(
+//                    onClick = {
+//                        showError = false
+//                        statusText = "Position your face in the frame and tap verify"
+//                    },
+//                    modifier = Modifier
+//                        .fillMaxWidth()
+//                        .height(56.dp),
+//                    colors = ButtonDefaults.buttonColors(
+//                        containerColor = MaterialTheme.colorScheme.secondary
+//                    )
+//                ) {
+//                    Text("Try Again")
+//                }
+//                Spacer(modifier = Modifier.height(12.dp))
+//            }
+//
+//            // Back Button
+//            OutlinedButton(
+//                onClick = onBackToNameEntry,
+//                modifier = Modifier
+//                    .fillMaxWidth()
+//                    .height(56.dp)
+//            ) {
+//                Text("Back")
+//            }
+//        }
+//    }
+//}
 
 // Convert ImageProxy (YUV_420_888) to Bitmap for immediate processing
 private fun ImageProxy.toBitmap(): android.graphics.Bitmap? {

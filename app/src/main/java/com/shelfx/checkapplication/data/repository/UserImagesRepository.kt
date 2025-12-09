@@ -99,7 +99,7 @@ class UserImagesRepository(
                     if (existingUser == null) {
                         Log.d("Repository", "User '$name' not found. Inserting new record...")
                         val newUser = UserImages(
-                            userName = name,
+                            userName = name.trim(),
                             frontEmbedding = frontEmb,
                             leftEmbedding = leftEmb,
                             rightEmbedding = rightEmb

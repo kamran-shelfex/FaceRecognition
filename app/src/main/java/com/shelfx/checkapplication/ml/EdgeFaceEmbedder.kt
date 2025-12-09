@@ -14,6 +14,7 @@ class EdgeFaceEmbedder(context: Context) {
     private var interpreter: Interpreter? = null
     private val inputSize = 112 // EdgeFace standard input size
     private val embeddingSize = 512 // EdgeFace-S output embedding dimension
+    private val interpreterLock = Any()
 
     init {
         try {
@@ -43,10 +44,16 @@ class EdgeFaceEmbedder(context: Context) {
 
         // Prepare output array
         val output = Array(1) { FloatArray(embeddingSize) }
-        Log.d("Output", output.toString())
+        output[0].fill(0f) // avoid stale data when reusing interpreter across calls
 
         // Run inference
-        interpreter?.run(input, output)
+        synchronized(interpreterLock) {
+            interpreter?.run(input, output)
+        }
+        Log.d(TAG, "Inference completed")
+        Log.d(TAG, "Output shape: ${output[0]}")
+
+
 
         // Normalize and return embedding
         return normalizeEmbedding(output[0])
