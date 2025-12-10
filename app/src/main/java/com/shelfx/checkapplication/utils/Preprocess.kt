@@ -40,7 +40,6 @@ class Preprocess(
             null
         }
     }
-
     /**
      * Preprocess and return both aligned face and detection result
      */
@@ -72,7 +71,6 @@ class Preprocess(
 
 
 }
-
 data class PreprocessResult(
     val alignedFace: Bitmap,
     val faceDetectionResult: FaceDetectionResult,

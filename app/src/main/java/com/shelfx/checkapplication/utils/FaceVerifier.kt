@@ -16,7 +16,7 @@ class FaceVerifier(
         private const val TAG = "FaceVerifier"
 
         // Stricter similarity threshold to reduce false accepts
-        private const val SIMILARITY_THRESHOLD = 0.80f
+        private const val SIMILARITY_THRESHOLD = 0.9f
 
         // Require at least 2 of 3 embeddings to match
         private const val MIN_MATCHING_EMBEDDINGS = 2

@@ -80,14 +80,17 @@ class UserImagesRepository(
             Log.d("Repository", "Generating FRONT embedding...")
             val frontEmb = embeddingPipeline.generateEmbedding(frontBitmap)
             Log.d("Repository", "Front embedding: ${if (frontEmb != null) "SUCCESS (size: ${frontEmb.size})" else "FAILED (null)"}")
+            Log.d("Repository", "Front embedding values: ${frontEmb?.contentToString()}")
 
             Log.d("Repository", "Generating LEFT embedding...")
             val leftEmb = embeddingPipeline.generateEmbedding(leftBitmap)
             Log.d("Repository", "Left embedding: ${if (leftEmb != null) "SUCCESS (size: ${leftEmb.size})" else "FAILED (null)"}")
+            Log.d("Repository", "Left embedding values: ${leftEmb?.contentToString()}")
 
             Log.d("Repository", "Generating RIGHT embedding...")
             val rightEmb = embeddingPipeline.generateEmbedding(rightBitmap)
             Log.d("Repository", "Right embedding: ${if (rightEmb != null) "SUCCESS (size: ${rightEmb.size})" else "FAILED (null)"}")
+            Log.d("Repository", "Right embedding values: ${rightEmb?.contentToString()}")
 
             if (frontEmb != null && leftEmb != null && rightEmb != null) {
                 Log.d("Repository", "✅ All embeddings generated successfully!")
@@ -105,6 +108,8 @@ class UserImagesRepository(
                             rightEmbedding = rightEmb
                         )
                         val insertedId = dao.insertUserImages(newUser)
+                        val user = dao.getUserImages(name)
+                        Log.d("Repository", "User: ${user}")
                         Log.d("Repository", "DATABASE INSERT SUCCESS! New user Row ID: $insertedId")
 
                     } else {

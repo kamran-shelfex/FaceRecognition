@@ -1,3 +1,107 @@
+//// utils/EmbeddingPipeline.kt
+//package com.shelfx.checkapplication.utils
+//
+//import android.content.Context
+//import android.graphics.Bitmap
+//import android.util.Log
+//import com.shelfx.checkapplication.ml.EdgeFaceEmbedder
+//
+//class EmbeddingPipeline(
+//    private val preprocess: Preprocess,
+//    private val embedder: EdgeFaceEmbedder
+//) {
+//    /**
+//     * Complete pipeline: bitmap → detect → align → embed
+//     */
+//    fun preprocessFace(bitmap: Bitmap): Bitmap? {
+//        return try {
+//            Log.d(TAG, "Starting face preprocessing...")
+//            val alignedFace = preprocess.process(bitmap)
+//            if (alignedFace == null) {
+//                Log.e(TAG, "Face detection/alignment failed")
+//            } else {
+//                Log.d(TAG, "Face preprocessing successful")
+//            }
+//            alignedFace
+//        } catch (e: Exception) {
+//            Log.e(TAG, "Error in preprocessing: ${e.message}", e)
+//            null
+//        }
+//    }
+//        suspend fun generateEmbedding(context : Context, bitmap: Bitmap): FloatArray? {
+//        return try {
+//            // Step 1: Detect and align face
+//            val alignedFace = preprocess.preprocessForRecognition(bitmap)
+//
+//            if (alignedFace == null) {
+//                Log.w(TAG, "Preprocessing failed - no face detected or alignment failed")
+//                return null
+//            }
+//
+//            // Step 2: Generate embedding
+//            val embedding = embedder.getEmbedding(alignedFace)
+//
+//            Log.d(TAG, "Embedding generated successfully: ${embedding.size} dimensions")
+//            Log.d(TAG, "Embedding sample: [${embedding.take(5).joinToString(", ")}...]")
+//
+//            embedding
+//
+//        } catch (e: Exception) {
+//            Log.e(TAG, "Error generating embedding: ${e.message}", e)
+//            null
+//        }
+//    }
+//
+//    /**
+//     * Generate embedding with detailed results
+//     */
+//    suspend fun generateEmbeddingWithDetails(bitmap: Bitmap): EmbeddingResult? {
+//        return try {
+//            val preprocessResult = preprocess.preprocessWithDetails(bitmap)
+//
+//            if (preprocessResult == null) {
+//                return null
+//            }
+//
+//            val embedding = embedder.getEmbedding(preprocessResult.alignedFace)
+//
+//            EmbeddingResult(
+//                embedding = embedding,
+//                alignedFace = preprocessResult.alignedFace,
+//                faceDetectionResult = preprocessResult.faceDetectionResult
+//            )
+//
+//        } catch (e: Exception) {
+//            Log.e(TAG, "Error generating embedding: ${e.message}", e)
+//            null
+//        }
+//    }
+//
+//    companion object {
+//        private const val TAG = "EmbeddingPipeline"
+//    }
+//}
+//
+//data class EmbeddingResult(
+//    val embedding: FloatArray,
+//    val alignedFace: Bitmap,
+//    val faceDetectionResult: FaceDetectionResult
+//) {
+//    override fun equals(other: Any?): Boolean {
+//        if (this === other) return true
+//        if (javaClass != other?.javaClass) return false
+//        other as EmbeddingResult
+//        return embedding.contentEquals(other.embedding)
+//    }
+//
+//    override fun hashCode(): Int {
+//        return embedding.contentHashCode()
+//    }
+//}
+//
+//
+//
+
 package com.shelfx.checkapplication.utils
 
 import android.content.Context
@@ -51,28 +155,13 @@ class EmbeddingPipeline(
                 return null
             }
 
-            // Generate embedding
+            // Generate embedding (no extra normalization here; model already outputs normalized)
             val emb = embedder.getEmbedding(alignedFace)
-
-            // Safety: re-normalize and validate in case upstream changes model output
-            val norm = l2Normalize(emb).also { validated ->
-                val sumSquares = validated.fold(0f) { acc, v -> acc + v * v }
-                val magnitude = kotlin.math.sqrt(sumSquares)
-                if (magnitude < 0.95f || magnitude > 1.05f) {
-                    Log.w(TAG, "Embedding magnitude out of bounds: $magnitude")
-                }
-                val firstVals = validated.take(5).joinToString(", ")
-                val uniqueCount = validated.distinct().size
-                if (uniqueCount <= 2) {
-                    Log.w(TAG, "Embedding appears nearly-constant (unique=$uniqueCount); check input/preprocess")
-                }
-                Log.d(TAG, "Embedding diag → mag=%.4f unique=%d first=[%s]".format(magnitude, uniqueCount, firstVals))
-            }
 
             Log.d(TAG, "Embedding generated successfully! dims=${emb.size}")
             Log.d(TAG, "Embedding sample: [${emb.take(5).joinToString(", ")}…]")
 
-            norm
+            emb
 
         } catch (e: Exception) {
             Log.e(TAG, "Error generating embedding: ${e.message}", e)
@@ -89,10 +178,9 @@ class EmbeddingPipeline(
                 ?: return null
 
             val embedding = embedder.getEmbedding(preprocessResult.alignedFace)
-            val normalized = l2Normalize(embedding)
 
             EmbeddingResult(
-                embedding = normalized,
+                embedding = embedding,
                 alignedFace = preprocessResult.alignedFace,
                 faceDetectionResult = preprocessResult.faceDetectionResult
             )
@@ -102,14 +190,6 @@ class EmbeddingPipeline(
             null
         }
     }
-}
-
-private fun l2Normalize(vec: FloatArray): FloatArray {
-    var sum = 0f
-    for (v in vec) sum += v * v
-    val norm = kotlin.math.sqrt(sum)
-    if (norm <= 1e-6f) return vec
-    return FloatArray(vec.size) { i -> vec[i] / norm }
 }
 
 data class EmbeddingResult(

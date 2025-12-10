@@ -5,7 +5,6 @@ import android.graphics.*
 import kotlin.math.*
 
 class FaceAlign {
-
     /**
      * Align face using eye positions for better accuracy
      */
@@ -35,28 +34,38 @@ class FaceAlign {
         rightEye: PointF,
         targetSize: Int
     ): Bitmap {
+        // Standard reference eye positions (ArcFace alignment)
+        val desiredLeftEye = PointF(0.35f * targetSize, 0.35f * targetSize)
+        val desiredRightEye = PointF(0.65f * targetSize, 0.35f * targetSize)
+
         // Calculate angle between eyes
         val dY = rightEye.y - leftEye.y
         val dX = rightEye.x - leftEye.x
         val angle = Math.toDegrees(atan2(dY.toDouble(), dX.toDouble())).toFloat()
 
-        // Calculate center point between eyes
-        val eyesCenterX = (leftEye.x + rightEye.x) / 2
-        val eyesCenterY = (leftEye.y + rightEye.y) / 2
+        // Calculate eye distance and scale
+        val currentEyeDistance = sqrt((dX * dX + dY * dY).toDouble()).toFloat()
+        val desiredEyeDistance = desiredRightEye.x - desiredLeftEye.x
+        val scale = desiredEyeDistance / currentEyeDistance
 
-        // Calculate scale
-        val eyeDistance = sqrt((dX * dX + dY * dY).toDouble()).toFloat()
-        val desiredEyeDistance = targetSize * 0.4f // Eyes should be ~40% of face width
-        val scale = desiredEyeDistance / eyeDistance
+        // Eyes center in original image
+        val eyesCenterX = (leftEye.x + rightEye.x) / 2f
+        val eyesCenterY = (leftEye.y + rightEye.y) / 2f
 
-        // Create transformation matrix
+        // Eyes center in target image
+        val targetEyesCenterX = (desiredLeftEye.x + desiredRightEye.x) / 2f
+        val targetEyesCenterY = (desiredLeftEye.y + desiredRightEye.y) / 2f
+
+        // Create transformation matrix with correct order
         val matrix = Matrix().apply {
-            // Rotate around eyes center
-            postRotate(angle, eyesCenterX, eyesCenterY)
-            // Scale
-            postScale(scale, scale, eyesCenterX, eyesCenterY)
-            // Translate to center
-            postTranslate(targetSize / 2f - eyesCenterX * scale, targetSize / 3f - eyesCenterY * scale)
+            // 1. Translate to origin
+            postTranslate(-eyesCenterX, -eyesCenterY)
+            // 2. Rotate around origin
+            postRotate(-angle) // Negative to correct orientation
+            // 3. Scale
+            postScale(scale, scale)
+            // 4. Translate to target position
+            postTranslate(targetEyesCenterX, targetEyesCenterY)
         }
 
         // Apply transformation
@@ -66,6 +75,7 @@ class FaceAlign {
             Bitmap.Config.ARGB_8888
         ).also { output ->
             val canvas = Canvas(output)
+            canvas.drawColor(Color.BLACK) // Fill background
             canvas.drawBitmap(bitmap, matrix, Paint(Paint.FILTER_BITMAP_FLAG))
         }
     }

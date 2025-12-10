@@ -24,9 +24,11 @@ import com.shelfx.checkapplication.utils.FaceVerifier
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextAlign
@@ -561,6 +563,12 @@ fun LoginVerificationScreen(
                 statusText = "Checking if user '$userName' exists..."
                 val storedImages = viewModel.loadUserImages(userName)
                 Log.d(TAG,"${storedImages}")
+
+                Log.d(TAG,"${storedImages?.rightEmbedding}")
+                Log.d(TAG,"${storedImages?.leftEmbedding}")
+                Log.d(TAG,"${storedImages?.frontEmbedding}")
+
+
 
                 if (storedImages == null) {
                     // User not found
@@ -1244,11 +1252,17 @@ fun CameraCaptureScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val faceDetector = remember { FaceDetector() }
+    DisposableEffect(Unit) {
+        onDispose { faceDetector.close() }
+    }
+    val scope = rememberCoroutineScope()
 
     var currentViewToCapture by remember { mutableStateOf<ImageType?>(ImageType.FRONT) }
     var isCapturing by remember { mutableStateOf(false) }
     var isProcessing by remember { mutableStateOf(false) }
-    var capturedImages by remember { mutableStateOf<Map<ImageType, String>>(emptyMap()) }
+    var capturedImages by remember { mutableStateOf<Map<ImageType, android.graphics.Bitmap>>(emptyMap()) }
+    var croppedImages by remember { mutableStateOf<Map<ImageType, android.graphics.Bitmap>>(emptyMap()) }
 
     val imageCapture: ImageCapture = remember {
         ImageCapture.Builder()
@@ -1261,8 +1275,9 @@ fun CameraCaptureScreen(
         if (capturedImages.size == 3 && !isProcessing) {
             isProcessing = true
             Log.d("CameraCaptureScreen", "All images captured for user: $userName")
+            Log.d("CameraCaptureScreen", "All images: ${capturedImages}")
 
-            processAndSaveImages(
+            processAndSaveImagesInMemory(
                 context = context,
                 viewModel = viewModel,
                 capturedImages = capturedImages,
@@ -1359,6 +1374,75 @@ fun CameraCaptureScreen(
                 modifier = Modifier.padding(bottom = 16.dp)
             )
 
+            // Preview cropped images as soon as they are captured (for testing)
+            if (capturedImages.isNotEmpty()) {
+                Text(
+                    text = "Captured previews",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ImageType.values().forEach { type ->
+                        val bmp = capturedImages[type]
+                        if (bmp != null) {
+                            androidx.compose.foundation.Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = "${type.name} preview",
+                                modifier = Modifier.size(96.dp)
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(96.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(type.name, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (croppedImages.isNotEmpty()) {
+                Text(
+                    text = "Cropped face previews",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ImageType.values().forEach { type ->
+                        val bmp = croppedImages[type]
+                        if (bmp != null) {
+                            androidx.compose.foundation.Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = "${type.name} cropped",
+                                modifier = Modifier.size(96.dp)
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(96.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(type.name, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            }
+
             if (isProcessing) {
                 CircularProgressIndicator(modifier = Modifier.padding(16.dp))
                 Text(
@@ -1373,36 +1457,41 @@ fun CameraCaptureScreen(
                         if (!isCapturing) {
                             isCapturing = true
                             val type = currentViewToCapture!!
-                            val photoFile = File(
-                                context.cacheDir,
-                                "${System.currentTimeMillis()}_${type.name}.jpg"
-                            )
-                            val outputOptions =
-                                ImageCapture.OutputFileOptions.Builder(photoFile).build()
 
                             imageCapture.takePicture(
-                                outputOptions,
                                 ContextCompat.getMainExecutor(context),
-                                object : ImageCapture.OnImageSavedCallback {
+                                object : ImageCapture.OnImageCapturedCallback() {
+                                    override fun onCaptureSuccess(image: ImageProxy) {
+                                        val bitmap = image.toBitmap()
+                                        image.close()
+                                        if (bitmap == null) {
+                                            Log.e("CameraCapture", "Bitmap conversion failed")
+                                            isCapturing = false
+                                            return
+                                        }
+                                        Log.d("CameraCapture", "Photo captured in-memory for $type")
+
+                                        capturedImages = capturedImages + (type to bitmap)
+                                        scope.launch(Dispatchers.Default) {
+                                            val cropped = faceDetector.detectAndCropLargestFace(bitmap)
+                                            if (cropped != null) {
+                                                croppedImages = croppedImages + (type to cropped)
+                                            }
+                                        }
+                                        currentViewToCapture = when (type) {
+                                            ImageType.FRONT -> ImageType.LEFT
+                                            ImageType.LEFT -> ImageType.RIGHT
+                                            ImageType.RIGHT -> null
+                                        }
+                                        isCapturing = false
+                                    }
+
                                     override fun onError(exc: ImageCaptureException) {
                                         Log.e(
                                             "CameraCapture",
                                             "Photo capture failed: ${exc.message}",
                                             exc
                                         )
-                                        isCapturing = false
-                                    }
-
-                                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                                        val path = photoFile.absolutePath
-                                        Log.d("CameraCapture", "Photo captured: $path")
-
-                                        capturedImages = capturedImages + (type to path)
-                                        currentViewToCapture = when (type) {
-                                            ImageType.FRONT -> ImageType.LEFT
-                                            ImageType.LEFT -> ImageType.RIGHT
-                                            ImageType.RIGHT -> null
-                                        }
                                         isCapturing = false
                                     }
                                 }
@@ -1496,6 +1585,57 @@ fun processAndSaveImages(
             }
         } catch (e: Exception) {
             Log.e("ProcessImages", "Error processing images: ${e.message}", e)
+            withContext(Dispatchers.Main) {
+                onComplete(false, "Error: ${e.message}")
+            }
+        }
+    }
+}
+
+/**
+ * In-memory variant: use already captured Bitmaps (no temp files).
+ */
+fun processAndSaveImagesInMemory(
+    context: Context,
+    viewModel: UserImagesViewModel,
+    capturedImages: Map<ImageType, android.graphics.Bitmap>,
+    userName: String,
+    onComplete: (Boolean, String) -> Unit
+) {
+    (context as? ComponentActivity)?.lifecycleScope?.launch {
+        try {
+            val frontBitmap = capturedImages[ImageType.FRONT]
+            val leftBitmap = capturedImages[ImageType.LEFT]
+            val rightBitmap = capturedImages[ImageType.RIGHT]
+
+            if (frontBitmap == null || leftBitmap == null || rightBitmap == null) {
+                withContext(Dispatchers.Main) {
+                    onComplete(false, "Missing bitmaps")
+                }
+                return@launch
+            }
+
+            withContext(Dispatchers.IO) {
+                Log.d("ProcessImages", "Processing in-memory bitmaps for $userName")
+
+                val wasSuccessful = viewModel.saveUserEmbeddings(
+                    context = context,
+                    userName = userName,
+                    frontBitmap = frontBitmap,
+                    leftBitmap = leftBitmap,
+                    rightBitmap = rightBitmap,
+                )
+
+                withContext(Dispatchers.Main) {
+                    if (wasSuccessful) {
+                        onComplete(true, "User '$userName' saved successfully!")
+                    } else {
+                        onComplete(false, "Failed to save user data. Please try again.")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ProcessImages", "Error processing in-memory images: ${e.message}", e)
             withContext(Dispatchers.Main) {
                 onComplete(false, "Error: ${e.message}")
             }
