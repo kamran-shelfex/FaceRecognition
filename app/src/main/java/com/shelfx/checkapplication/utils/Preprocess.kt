@@ -15,26 +15,28 @@ class Preprocess(
     suspend fun preprocessForRecognition(bitmap: Bitmap): Bitmap? {
         return try {
             // Detect largest face
-            val faceResult = faceDetector.detectLargestFace(bitmap)
+//            val faceResult = faceDetector.detectLargestFace(bitmap)
+            val faceResult = faceDetector.detectAndCropLargestFace(bitmap, paddingRatio = 0.2f)
 
             if (faceResult == null) {
                 Log.w(TAG, "No face detected in image")
                 return null
             }
 
-            Log.d(TAG, "Face detected at: ${faceResult.boundingBox}")
+//            Log.d(TAG, "Face detected at: ${faceResult.boundingBox}")
 
-            // Align face
-            val alignedFace = faceAlign.alignFaceWithLandmarks(faceResult = faceResult, bitmap = bitmap)
 
-            if (alignedFace == null) {
-                Log.w("Face alignment", "Face alignment failed")
-                return null
-            }
-
-            Log.d(TAG, "Face aligned successfully: ${alignedFace.width}x${alignedFace.height}")
-            alignedFace
-
+//             Align face
+//            val alignedFace = faceAlign.alignFaceWithLandmarks(faceResult = faceResult, bitmap = croppedFace)
+//
+//            if (alignedFace == null) {
+//                Log.w("Face alignment", "Face alignment failed")
+//                return null
+//            }
+//
+//            Log.d(TAG, "Face aligned successfully: ${alignedFace.width}x${alignedFace.height}")
+//            alignedFace
+            faceResult
         } catch (e: Exception) {
             Log.e(TAG, "Error in preprocessing: ${e.message}")
             null
